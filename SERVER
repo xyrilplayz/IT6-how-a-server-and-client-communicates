@@ -1,0 +1,142 @@
+import tkinter as tk
+import threading
+import time as t
+from python_banyan.banyan_base import BanyanBase
+
+class EchoServer(BanyanBase):
+    def __init__(self):
+        super(EchoServer, self).__init__(process_name='Server')
+
+        self.set_subscriber_topic('echo')
+
+        self.time = 0
+        self.bids = {}
+
+        def start():
+            self.time = int(self.first_textbox.get())
+            if self.time > 0:
+                self.first_textbox.configure(state=tk.NORMAL)
+                self.start_button.configure(state=tk.DISABLED)
+                self.stop_button.configure(state=tk.NORMAL)
+                threading.Thread(target=self.countdown).start()
+
+        def close():
+            self.time = 1
+            self.stop_button.configure(state=tk.DISABLED)
+            
+        bg_color = "#000000"
+        text_color = "#ffffff"
+        self.main = tk.Tk()
+        self.main.title("*AUCTION*")
+        self.main.resizable(False, False)
+        self.main.configure(bg=bg_color)
+
+        icon_path = 'ico.png'
+        try:
+            self.icon = tk.PhotoImage(file=icon_path)
+            self.main.iconphoto(True, self.icon)
+        except tk.TclError:
+            print(f"Failed to load icon image from {icon_path}")
+
+        self.first_label = tk.Label(self.main, text="Countdown (Seconds):", bg=bg_color, fg=text_color)
+        self.first_label.grid(row=0, column=0, padx=10, pady=10)
+
+        self.first_textbox = tk.Entry(self.main, width=5)
+        self.first_textbox.grid(row=0, column=1, padx=10, pady=10)
+
+        self.start_button = tk.Button(self.main, text="Start", command=start, width=5)
+        self.start_button.grid(row=0, column=2, pady=10)
+
+        self.stop_button = tk.Button(self.main, text="Stop", command=close, width=5, state=tk.DISABLED)
+        self.stop_button.grid(row=0, column=3, padx=10, pady=10)
+
+        self.label = tk.Label(self.main, text="BIDDING PROCESS",bg=bg_color, fg=text_color)
+        self.label.grid(row=1, column=1, pady=20)
+
+        self.Auction = tk.Text(self.main, width=40, height=20, state=tk.DISABLED, font=('Arial', 10))
+        self.Auction.grid(row=2, column=0, padx=10, pady=10, columnspan=4)
+
+        threading.Thread(target=self.receive_loop).start()
+
+        self.results_window = None
+
+        self.main.mainloop()
+
+    def show_results_window(self):
+
+        for item_name, bid_data in self.bids.items():
+            highest_bid_index = bid_data['bids'].index(max(bid_data['bids']))
+            highest_bid = bid_data['bids'][highest_bid_index]
+            highest_bidder_name = bid_data['bidders'][highest_bid_index]
+
+            result_text = f"Item: {item_name}, Winner: {highest_bidder_name}, Bid: {highest_bid}"
+            result_label = tk.Label(self.results_window, text=result_text)
+            result_label.pack()
+
+        self.results_window.mainloop()
+
+    def countdown(self):
+        while True:
+            self.publish_payload({'time': self.time}, 'reply')
+            if self.time == 0:
+                self.first_textbox.configure(state=tk.NORMAL)
+                self.start_button.configure(state=tk.NORMAL)
+                self.stop_button.configure(state=tk.DISABLED)
+
+                self.Auction.configure(state=tk.NORMAL)
+                self.Auction.insert(tk.END, f"\n  */*/*/*/ The Winners For this Auction */*/*/*/*/\n")
+                self.Auction.configure(state=tk.DISABLED)
+
+                for item_name, bid_data in self.bids.items():
+                    self.bid_list = bid_data['bids']
+                    self.bidder_list = bid_data['bidders']
+
+                    self.highest_bid_index = self.bid_list.index(max(self.bid_list))
+                    self.highest_bid = self.bid_list[self.highest_bid_index]
+                    self.highest_bidder_name = self.bidder_list[self.highest_bid_index]
+
+                    self.item_name = item_name
+                    self.publish_payload({'item_name': self.item_name, 'highest_bid': self.highest_bid,
+                                          'highest_bidder': self.highest_bidder_name}, 'reply')
+                    self.Auction.configure(state=tk.NORMAL)
+                    self.Auction.insert(tk.END, f"WINNER!!! [{self.highest_bidder_name}]for {self.item_name} with the bid of {self.highest_bid}\n")
+                    self.Auction.configure(state=tk.DISABLED)
+
+                break
+
+            t.sleep(1)
+            self.time -= 1
+            self.first_textbox.delete(0, tk.END)
+            self.first_textbox.insert(tk.END, str(self.time))
+
+    def incoming_message_processing(self, topic, payload):
+        if 'client_name' in payload:
+            self.Auction.configure(state=tk.NORMAL)
+            self.Auction.insert(tk.END, f"{payload['client_name']} is Online...\n")
+            self.Auction.configure(state=tk.DISABLED)
+
+        if 'sell_item_name' in payload and 'sell_item_price' in payload and 'seller_name' in payload:
+            self.Auction.configure(state=tk.NORMAL)
+            self.Auction.insert(tk.END, f"Selling: {payload['sell_item_name']},for Php: {payload['sell_item_price']} By: [{payload['seller_name']}]\n")
+            self.Auction.configure(state=tk.DISABLED)
+            self.publish_payload({'sell_item_name': payload['sell_item_name'], 'sell_item_price': payload['sell_item_price'],
+                                  'seller_name': payload['seller_name']}, 'reply')
+
+        if 'bid_item_name' in payload and 'bid_price' in payload and 'bidder_name' in payload:
+            self.Auction.configure(state=tk.NORMAL)
+            self.Auction.insert(tk.END, f"Bidding for : {payload['bid_item_name']} with {payload['bid_price']} By: [{payload['bidder_name']}]\n")
+            self.Auction.configure(state=tk.DISABLED)
+            self.publish_payload({'bid_item_name': payload['bid_item_name'], 'bid_price': payload['bid_price'],
+                                  'bidder_name': payload['bidder_name']}, 'reply')
+
+            if payload['bid_item_name'] not in self.bids:
+                self.bids[payload['bid_item_name']] = {'bids': [payload['bid_price']], 'bidders': [payload['bidder_name']]}
+            else:
+                self.bids[payload['bid_item_name']]['bids'].append(payload['bid_price'])
+                self.bids[payload['bid_item_name']]['bidders'].append(payload['bidder_name'])
+
+def echo_server():
+    EchoServer()
+
+if __name__ == '__main__':
+    echo_server()
