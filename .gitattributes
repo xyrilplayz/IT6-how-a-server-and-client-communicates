@@ -1,2 +1,243 @@
-# Auto detect text files and perform LF normalization
-* text=auto
+import argparse
+import signal
+import tkinter as tk
+import threading
+from tkinter import messagebox
+from python_banyan.banyan_base import BanyanBase
+
+class EchoCmdClient(BanyanBase):
+    def __init__(self, **kwargs):
+        super(EchoCmdClient, self).__init__(back_plane_ip_address=kwargs['back_plane_ip_address'],
+                                            subscriber_port=kwargs['subscriber_port'],
+                                            publisher_port=kwargs['publisher_port'],
+                                            process_name=kwargs['process_name'],
+                                            loop_time=kwargs['loop_time'])
+
+        self.set_subscriber_topic('reply')
+
+        self.client_name = ''
+
+        def accept_name():
+            self.client_name = self.first_entry.get()
+            if self.client_name != '':
+                self.publish_payload({'client_name': self.client_name}, 'echo')
+                self.main.destroy()
+                self.client_window()
+            else:
+                messagebox.showerror("Error", "Invalid Name!")
+        bg_color = "#000000"
+        text_color = "#ffffff"
+        self.main = tk.Tk()
+        self.main.title("ENTER YOUR NAME")
+        self.main.resizable(False, False)
+        self.main.configure(bg= bg_color)
+
+        icon_path = 'ico.png'
+        try:
+            self.icon = tk.PhotoImage(file=icon_path)
+            self.main.iconphoto(True, self.icon)
+        except tk.TclError:
+            print(f"Failed to load icon image from {icon_path}")
+        
+
+        self.first_entry = tk.Entry(self.main, width=33)
+        self.first_entry.grid(row=0, column=0, padx=10, pady=10)
+
+        self.Enter_button = tk.Button(self.main, text="Enter", command=accept_name, width=5, )
+        self.Enter_button.grid(row=0, column=1, padx=10, pady=10)
+
+        threading.Thread(target=self.receive_loop).start()
+
+        self.main.mainloop()
+
+    def client_window(self):
+        bg_color = "#000000"
+        text_color = "#ffffff"
+        self.client = tk.Tk()
+        self.client.title(f"{self.client_name}")
+        self.client.resizable(False, False)
+        self.client.configure(bg= bg_color)
+
+        icon_path = 'ico.png'
+        try:
+            self.icon = tk.PhotoImage(file=icon_path)
+            self.client.iconphoto(True, self.icon)
+        except tk.TclError:
+            print(f"Failed to load icon image from {icon_path}")
+        self.client_bid_items = []
+
+        self.bid_button = tk.Button(self.client, text="Bid", command=self.bid_window, width=7, state=tk.DISABLED)
+        self.bid_button.grid(row=1, column=0, padx=10, pady=10)
+
+        self.sell_button = tk.Button(self.client, text="Sell", command=self.sell_window, width=7, state=tk.DISABLED)
+        self.sell_button.grid(row=3, column=0, padx=5, pady=10)
+
+        self.Time = tk.Label(self.client, text="Time Left:",bg=bg_color, fg=text_color)
+        self.Time.grid(row=0, column=12, padx=10, pady=10)
+
+        self.text_time = tk.Text(self.client, width=5, height=1, state=tk.DISABLED)
+        self.text_time.grid(row=0, column=13, padx=10, pady=10)
+
+        self.bidding_label = tk.Label(self.client, text="Item(s) for BIDDING:",bg=bg_color, fg=text_color)
+        self.bidding_label.grid(row=1, column=1, columnspan=3)
+
+        self.bidding_box = tk.Listbox(self.client, width=50, height=10)
+        self.bidding_box.grid(row=2, column=1, columnspan=2, padx=10, pady=10)
+
+        self.selling_label = tk.Label(self.client, text="Item(s) you are SELLING:",bg=bg_color, fg=text_color)
+        self.selling_label.grid(row=3, column=1, columnspan=3)
+
+        self.selling_box = tk.Listbox(self.client, width=50, height=10)
+        self.selling_box.grid(row=4, column=1, columnspan=2, padx=10, pady=10)
+
+        self.process = tk.Label(self.client, text="BIDDING PROCESS",bg=bg_color, fg=text_color)
+        self.process.grid(row=1, column=12, columnspan=7, padx=10, pady=10, sticky=tk.W)
+                        
+        self.operation = tk.Text(self.client, width=50, height=25, state=tk.DISABLED, font=('Arial', 10))
+        self.operation.grid(row=2, column=8, columnspan=7, padx=10, pady=10, rowspan=3)
+
+        self.client.mainloop()
+
+
+    def bid_window(self):
+        self.bid = tk.Tk()
+        self.bid.title("BIDDING...")
+        self.bid.resizable(False, False)
+
+        self.bidder_name = self.client_name
+        self.bid_item_index = self.bidding_box.curselection()[0]
+        self.bid_item_name = self.client_bid_items[self.bid_item_index][0]
+        self.bid_item_price = self.client_bid_items[self.bid_item_index][1]
+        self.bid_price = 0
+
+        def accept_bid():
+            self.bid_price = float(self.bid_entry_price.get())
+            if self.bid_item_price < self.bid_price:
+                self.publish_payload({'bid_item_name': self.bid_item_name, 'bid_price': self.bid_price,
+                                      'bidder_name': self.bidder_name}, 'echo')
+                self.operation.insert(tk.END, f"Bidding: {self.bid_item_name} with {self.bid_price} by: {self.bidder_name}\n")
+                self.bid.destroy()
+            else:
+                messagebox.showerror('Error', 'Bid price should be higher than the item price!')
+
+        self.bid_label_item = tk.Label(self.bid, text=f"{self.bid_item_name}:")
+        self.bid_label_item.grid(row=0, column=0, padx=10, pady=10)
+
+        self.bid_entry_price = tk.Entry(self.bid, width=20)
+        self.bid_entry_price.grid(row=0, column=1, pady=10)
+
+        self.bid_button_accept = tk.Button(self.bid, text='Enter', command=accept_bid, width=5)
+        self.bid_button_accept.grid(row=0, column=2, padx=10, pady=10)
+
+        self.bid.mainloop()
+
+    def sell_window(self):
+        self.sell = tk.Tk()
+        self.sell.title("SELLING...")
+        self.sell.resizable(False, False)
+
+        self.seller_name = self.client_name
+        self.sell_item_name = ''
+        self.sell_item_price = 0
+
+        def accept_sell():
+            self.sell_item_name = self.sell_entry.get()
+            self.sell_item_price = float(self.price.get())
+
+            self.selling_box.insert(tk.END, f"{self.sell_item_name} for Php: {self.sell_item_price}")
+
+            self.publish_payload({'sell_item_name': self.sell_item_name, 'sell_item_price': self.sell_item_price,
+                                  'seller_name': self.seller_name}, 'echo')
+
+            self.operation.insert(tk.END, f"Selling: {self.sell_item_name} for Php: {self.sell_item_price} by: {self.seller_name}\n")
+
+            self.sell.destroy()
+
+        self.item = tk.Label(self.sell, text='Item:')
+        self.item.grid(row=0, column=0, padx=10, pady=10)
+
+        self.sell_entry = tk.Entry(self.sell, width=10)
+        self.sell_entry.grid(row=0, column=1)
+
+        self.label_price = tk.Label(self.sell, text='Price:')
+        self.label_price.grid(row=0, column=2, padx=10, pady=10)
+
+        self.price = tk.Entry(self.sell, width=10)
+        self.price.grid(row=0, column=3)
+
+        self.sell_button_accept = tk.Button(self.sell, text='Enter', command=accept_sell, width=5)
+        self.sell_button_accept.grid(row=0, column=4, padx=10, pady=10)
+
+        self.sell.mainloop()
+
+    def incoming_message_processing(self, topic, payload):
+        if 'time' in payload:
+            self.text_time.configure(state=tk.NORMAL)
+            self.text_time.delete('1.0', tk.END)
+            self.text_time.insert(tk.END, payload['time'])
+            self.text_time.configure(state=tk.DISABLED)
+            self.bid_button.configure(state=tk.NORMAL)
+            self.sell_button.configure(state=tk.NORMAL)
+            if payload['time'] == 0:
+                self.bid_button.configure(state=tk.DISABLED)
+                self.sell_button.configure(state=tk.DISABLED)
+                self.operation.configure(state=tk.NORMAL)
+                self.operation.insert(tk.END, f"\n*/*/*/*/*/The Winners For this Auction are*/*/*/*/\n")
+                self.operation.configure(state=tk.NORMAL)
+
+        if 'sell_item_name' in payload and 'sell_item_price' in payload and 'seller_name' in payload:
+            if payload['seller_name'] != self.client_name:
+                self.bidding_box.insert(tk.END, f"Selling: {payload['sell_item_name']}, for Php: {payload['sell_item_price']} by: [{payload['seller_name']}]")
+                self.client_bid_items.append([payload['sell_item_name'], payload['sell_item_price']])
+                self.operation.insert(tk.END, f"Selling: {payload['sell_item_name']} for Php: {payload['sell_item_price']} by: {payload['seller_name']}\n")
+
+        if 'bid_item_name' in payload and 'bid_price' in payload and 'bidder_name' in payload:
+            self.operation.configure(state=tk.NORMAL)
+            self.operation.insert(tk.END, f"Bidding: {payload['bid_item_name']} with {payload['bid_price']} by: [{payload['bidder_name']}]\n")
+            self.operation.configure(state=tk.DISABLED)
+            self.operation.insert(tk.END, f"Bidding: {payload['bid_item_name']} with {payload['bid_price']} by: {payload['bidder_name']}\n")
+
+        if 'item_name' in payload and 'highest_bid' in payload and 'highest_bidder' in payload:
+            self.operation.configure(state=tk.NORMAL)
+            self.operation.insert(tk.END, f"WINNER is {payload['highest_bidder']} for {payload['item_name']} with a bid of {payload['highest_bid']}\n")
+            self.operation.configure(state=tk.DISABLED)
+            self.operation.insert(tk.END, f"WINNER is {payload['highest_bidder']} for {payload['item_name']} with a bid of {payload['highest_bid']} (BIDDING PROCESS)\n")
+
+def echo_cmdline_client():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("-b", dest="back_plane_ip_address", default="None",
+                        help="None or IP address used by Back Plane")
+    parser.add_argument("-m", dest="number_of_messages", default="10",
+                        help="Number of messages to publish")
+    parser.add_argument("-n", dest="process_name", default="EchoCmdClient",
+                        help="Set process name in banner")
+    parser.add_argument("-p", dest="publisher_port", default='43124',
+                        help="Publisher IP port")
+    parser.add_argument("-s", dest="subscriber_port", default='43125',
+                        help="Subscriber IP port")
+    parser.add_argument("-t", dest="loop_time", default=".1",
+                        help="Event Loop Timer in seconds")
+
+    args = parser.parse_args()
+
+    if args.back_plane_ip_address == 'None':
+        args.back_plane_ip_address = None
+
+    kw_options = {'back_plane_ip_address': args.back_plane_ip_address,
+                  'number_of_messages': int(args.number_of_messages),
+                  'publisher_port': args.publisher_port,
+                  'subscriber_port': args.subscriber_port,
+                  'process_name': args.process_name,
+                  'loop_time': float(args.loop_time)}
+
+    EchoCmdClient(**kw_options)
+
+def signal_handler(sig, frame):
+    print('Exiting Through Signal Handler')
+    raise KeyboardInterrupt
+
+signal.signal(signal.SIGINT, signal_handler)
+signal.signal(signal.SIGTERM, signal_handler)
+
+if __name__ == '__main__':
+    echo_cmdline_client()
